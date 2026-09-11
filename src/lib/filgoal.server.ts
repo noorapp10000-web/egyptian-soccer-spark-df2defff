@@ -618,7 +618,7 @@ export async function loadNews() {
       if (t.includes("المصري للألومنيوم") || t.includes("مصري المقاصة")) return false;
       return t.includes("المصري") || t.includes("بورسعيد");
     });
-    if (list.length === 0) throw new Error("لا توجد أخبار عن النادي المصري حاليًا");
+    // لو مفيش أخبار مطابقة، نرجّع قائمة فارغة بدل رمي خطأ يوقف الصفحة
     return list.slice(0, 30);
   });
   return {
