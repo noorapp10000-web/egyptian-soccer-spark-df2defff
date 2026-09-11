@@ -12,7 +12,6 @@ const UA =
 const TIMEOUT_MS = 12_000;
 
 const FG = "https://www.filgoal.com";
-const YK = "https://www.yallakora.com";
 
 export type Source = {
   name: string;
