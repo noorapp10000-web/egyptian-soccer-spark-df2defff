@@ -585,8 +585,13 @@ const FIXTURES_URL = `${FG}/teams/${TEAM_ID}/matches-fixtures`;
 const PLAYERS_URL = `${FG}/teams/${TEAM_ID}/players/x`;
 const SCORERS_URL = `${FG}/teams/${TEAM_ID}/scorers/x`;
 const STANDINGS_URL = `${FG}/championships/${LEAGUE_ID}/standings/x`;
-const FG_NEWS_URL = `${FG}/search/filter?keyword=%D8%A7%D9%84%D9%85%D8%B5%D8%B1%D9%8A%20%D8%A7%D9%84%D8%A8%D9%88%D8%B1%D8%B3%D8%B9%D9%8A%D8%AF%D9%8A`;
-const YK_NEWS_URL = `${YK}/search?q=%D8%A7%D9%84%D9%85%D8%B5%D8%B1%D9%8A%20%D8%A7%D9%84%D8%A8%D9%88%D8%B1%D8%B3%D8%B9%D9%8A%D8%AF%D9%8A`;
+// صفحة أخبار نادي المصري نفسها على "في الجول" + صفحة النادي كمصدر إضافي
+const FG_NEWS_URL = `${FG}/teams/${TEAM_ID}/articles/${encodeURIComponent("المصري")}`;
+const FG_TEAM_URL = `${FG}/teams/${TEAM_ID}`;
+// خلاصة أخبار تجمع يلاكورة ومصادر مصرية أخرى عن النادي
+const AGG_NEWS_URL = `https://news.google.com/rss/search?q=${encodeURIComponent(
+  '"المصري البورسعيدي" OR "النادي المصري"',
+)}&hl=ar&gl=EG&ceid=EG:ar`;
 
 export async function loadMatches() {
   const entry = await cached("matches", 60_000, async () => {
