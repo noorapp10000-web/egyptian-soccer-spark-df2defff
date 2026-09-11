@@ -12,7 +12,6 @@ const UA =
 const TIMEOUT_MS = 12_000;
 
 const FG = "https://www.filgoal.com";
-const YK = "https://www.yallakora.com";
 
 export type Source = {
   name: string;
@@ -490,46 +489,91 @@ export function parseMatchDetail(html: string): MatchDetail | null {
   };
 }
 
+/** أخبار النادي من صفحة أخبار الفريق في "في الجول" (قائمة <li> داخل main). */
 export function parseFilGoalNews(html: string): NewsItem[] {
-  const items = [...html.matchAll(/<div class="news-block[^"]*">([\s\S]*?)<\/header>/gi)]
-    .map((m) => m[1]!)
-    .map((block): NewsItem | null => {
-      const link = block.match(/href="(\/articles\/(\d+)\/[^"]*)"/i);
-      if (!link) return null;
-      const title = decode(
-        block.match(/<h6>\s*<a[^>]*>([\s\S]*?)<\/a>/i)?.[1] ?? "",
-      );
-      const image = block.match(/data-src="([^"]+)"/i)?.[1];
-      return {
-        id: `filgoal-${link[2]}`,
-        title,
-        url: `${FG}${link[1]}`,
-        imageUrl: absolute(image),
-        publishedText: null,
-        sourceName: "FilGoal",
-      } satisfies NewsItem;
-    })
-    .filter((n): n is NewsItem => n !== null && Boolean(n.title));
+  const blocks = [
+    ...html.matchAll(
+      /<li>\s*<a href="(\/articles\/(\d+)\/[^"]*)"([\s\S]*?)<\/a>\s*<\/li>/gi,
+    ),
+    // النسخة المختصرة على صفحة النادي (mcitem)
+    ...html.matchAll(
+      /<div class="mcitem">([\s\S]*?)<\/div>\s*<\/div>/gi,
+    ),
+  ];
+
+  const items: NewsItem[] = [];
+  for (const m of blocks) {
+    const chunk = m[0]!;
+    const link = chunk.match(/href="(\/articles\/(\d+)\/[^"]*)"/i);
+    if (!link) continue;
+    const id = `filgoal-${link[2]}`;
+    // العنوان: من h6 لو موجود، وإلا نص الرابط، وإلا من الـ slug
+    let title = decode(
+      (chunk.match(/<h6>([\s\S]*?)<\/h6>/i)?.[1] ?? "").replace(/<[^>]+>/g, " "),
+    );
+    if (!title) {
+      const anchor = chunk.match(
+        /<a href="\/articles\/\d+\/[^"]*"[^>]*>([\s\S]*?)<\/a>/i,
+      )?.[1];
+      title = decode((anchor ?? "").replace(/<[^>]+>/g, " "));
+    }
+    if (!title) {
+      try {
+        title = decodeURIComponent(link[1]!.split("/")[3] ?? "").replace(/-/g, " ");
+      } catch {
+        title = "";
+      }
+    }
+    if (!title) continue;
+    const image = chunk.match(/data-src="([^"]+)"/i)?.[1];
+    const date = chunk.match(/<span>[\s\S]*?([^<>]*\d{4}[^<>]*)<\/span>/i)?.[1];
+    items.push({
+      id,
+      title,
+      url: `${FG}${link[1]}`,
+      imageUrl: absolute(image),
+      publishedText: date ? decode(date) : null,
+      sourceName: "FilGoal",
+    });
+  }
   return [...new Map(items.map((n) => [n.id, n])).values()];
 }
 
-export function parseYallakoraNews(html: string): NewsItem[] {
-  const items = [...html.matchAll(/<a href="([^"]*\/news\/(\d+)\/[^"]*)"[^>]*title="([^"]*)"[\s\S]{0,1200}?(?=<a href=)/gi)]
-    .map((m) => {
-      const href = m[1]!.startsWith("http") ? m[1]! : `${YK}${m[1]}`;
-      const chunk = m[0]!;
-      const image = chunk.match(/(?:data-src|src)="(https?:\/\/[^"]+\.(?:jpg|jpeg|png|webp)[^"]*)"/i)?.[1];
-      const date = chunk.match(/<span>([^<]*\d{4})<\/span>/i)?.[1];
+/** خلاصة أخبار Google (تجمع يلاكورة واليوم السابع وغيرها) عن النادي المصري. */
+export function parseAggregatorNews(xml: string): NewsItem[] {
+  const items = [...xml.matchAll(/<item>([\s\S]*?)<\/item>/gi)]
+    .map((m): NewsItem | null => {
+      const block = m[1]!;
+      const rawTitle = decode(block.match(/<title>([\s\S]*?)<\/title>/i)?.[1] ?? "");
+      const url = decode(block.match(/<link>([\s\S]*?)<\/link>/i)?.[1] ?? "");
+      if (!rawTitle || !url) return null;
+      const source = decode(
+        block.match(/<source[^>]*>([\s\S]*?)<\/source>/i)?.[1] ?? "أخبار",
+      );
+      const title = rawTitle.replace(new RegExp(`\\s*-\\s*${source}\\s*$`), "").trim();
+      const pubDate = block.match(/<pubDate>([\s\S]*?)<\/pubDate>/i)?.[1];
+      const guid = decode(block.match(/<guid[^>]*>([\s\S]*?)<\/guid>/i)?.[1] ?? url);
+      let publishedText: string | null = null;
+      if (pubDate) {
+        const d = new Date(pubDate);
+        if (!Number.isNaN(d.getTime())) {
+          publishedText = d.toLocaleDateString("ar-EG", {
+            day: "numeric",
+            month: "long",
+            year: "numeric",
+          });
+        }
+      }
       return {
-        id: `yallakora-${m[2]}`,
-        title: decode(m[3]!),
-        url: href,
-        imageUrl: image ?? null,
-        publishedText: date ? decode(date) : null,
-        sourceName: "Yallakora",
+        id: `news-${guid.slice(-40)}`,
+        title,
+        url,
+        imageUrl: null,
+        publishedText,
+        sourceName: source,
       } satisfies NewsItem;
     })
-    .filter((n) => Boolean(n.title));
+    .filter((n): n is NewsItem => n !== null);
   return [...new Map(items.map((n) => [n.id, n])).values()];
 }
 
@@ -540,8 +584,13 @@ const FIXTURES_URL = `${FG}/teams/${TEAM_ID}/matches-fixtures`;
 const PLAYERS_URL = `${FG}/teams/${TEAM_ID}/players/x`;
 const SCORERS_URL = `${FG}/teams/${TEAM_ID}/scorers/x`;
 const STANDINGS_URL = `${FG}/championships/${LEAGUE_ID}/standings/x`;
-const FG_NEWS_URL = `${FG}/search/filter?keyword=%D8%A7%D9%84%D9%85%D8%B5%D8%B1%D9%8A%20%D8%A7%D9%84%D8%A8%D9%88%D8%B1%D8%B3%D8%B9%D9%8A%D8%AF%D9%8A`;
-const YK_NEWS_URL = `${YK}/search?q=%D8%A7%D9%84%D9%85%D8%B5%D8%B1%D9%8A%20%D8%A7%D9%84%D8%A8%D9%88%D8%B1%D8%B3%D8%B9%D9%8A%D8%AF%D9%8A`;
+// صفحة أخبار نادي المصري نفسها على "في الجول" + صفحة النادي كمصدر إضافي
+const FG_NEWS_URL = `${FG}/teams/${TEAM_ID}/articles/${encodeURIComponent("المصري")}`;
+const FG_TEAM_URL = `${FG}/teams/${TEAM_ID}`;
+// خلاصة أخبار تجمع يلاكورة ومصادر مصرية أخرى عن النادي
+const AGG_NEWS_URL = `https://news.google.com/rss/search?q=${encodeURIComponent(
+  '"المصري البورسعيدي" OR "النادي المصري"',
+)}&hl=ar&gl=EG&ceid=EG:ar`;
 
 export async function loadMatches() {
   const entry = await cached("matches", 60_000, async () => {
@@ -604,26 +653,34 @@ export async function loadStandings() {
 
 export async function loadNews() {
   const entry = await cached("news", 3 * 60_000, async () => {
-    const [fgHtml, ykHtml] = await Promise.all([
+    const [fgHtml, teamHtml, aggXml] = await Promise.all([
       fetchHtml(FG_NEWS_URL).catch(() => ""),
-      fetchHtml(YK_NEWS_URL).catch(() => ""),
+      fetchHtml(FG_TEAM_URL).catch(() => ""),
+      fetchHtml(AGG_NEWS_URL).catch(() => ""),
     ]);
-    const items = [
+    const fgItems = [
       ...(fgHtml ? parseFilGoalNews(fgHtml) : []),
-      ...(ykHtml ? parseYallakoraNews(ykHtml) : []),
-    ];
-    // أخبار النادي المصري فقط — نستبعد أي خبر لا يخص النادي
-    const list = items.filter((n) => {
+      ...(teamHtml ? parseFilGoalNews(teamHtml) : []),
+    ].filter((n) => {
       const t = n.title;
       if (t.includes("المصري للألومنيوم") || t.includes("مصري المقاصة")) return false;
+      // صفحات "في الجول" بتحتوي كمان أخبار عامة، فنسيب اللي يخص النادي بس
       return t.includes("المصري") || t.includes("بورسعيد");
     });
-    // لو مفيش أخبار مطابقة، نرجّع قائمة فارغة بدل رمي خطأ يوقف الصفحة
-    return list.slice(0, 30);
+    const aggItems = (aggXml ? parseAggregatorNews(aggXml) : []).filter((n) => {
+      const t = n.title;
+      if (t.includes("المصري للألومنيوم") || t.includes("مصري المقاصة")) return false;
+      if (/الدوري المصري|المنتخب المصري|الاتحاد المصري|السوبر المصري/.test(t)) {
+        return t.includes("بورسعيد");
+      }
+      return t.includes("المصري") || t.includes("بورسعيد");
+    });
+    const merged = [...fgItems, ...aggItems];
+    return [...new Map(merged.map((n) => [n.url, n])).values()].slice(0, 40);
   });
   return {
     news: entry.value,
-    source: sourceOf("FilGoal + Yallakora", FG_NEWS_URL, entry.live, entry.at),
+    source: sourceOf("FilGoal + مصادر أخبار", FG_NEWS_URL, entry.live, entry.at),
   };
 }
 
