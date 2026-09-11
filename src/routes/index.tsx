@@ -561,6 +561,9 @@ function NewsSection() {
   if (isLoading) return <SectionSkeleton cards={4} />;
   if (isError || !data)
     return <p className="text-sm text-muted-foreground">تعذر تحميل الأخبار الآن.</p>;
+  if (data.news.length === 0)
+    return <p className="text-sm text-muted-foreground">لا توجد أخبار جديدة عن النادي المصري حاليًا.</p>;
+
 
   return (
     <div className="space-y-3">
