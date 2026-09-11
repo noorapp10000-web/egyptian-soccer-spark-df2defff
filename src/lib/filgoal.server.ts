@@ -654,26 +654,34 @@ export async function loadStandings() {
 
 export async function loadNews() {
   const entry = await cached("news", 3 * 60_000, async () => {
-    const [fgHtml, ykHtml] = await Promise.all([
+    const [fgHtml, teamHtml, aggXml] = await Promise.all([
       fetchHtml(FG_NEWS_URL).catch(() => ""),
-      fetchHtml(YK_NEWS_URL).catch(() => ""),
+      fetchHtml(FG_TEAM_URL).catch(() => ""),
+      fetchHtml(AGG_NEWS_URL).catch(() => ""),
     ]);
-    const items = [
+    const fgItems = [
       ...(fgHtml ? parseFilGoalNews(fgHtml) : []),
-      ...(ykHtml ? parseYallakoraNews(ykHtml) : []),
-    ];
-    // أخبار النادي المصري فقط — نستبعد أي خبر لا يخص النادي
-    const list = items.filter((n) => {
+      ...(teamHtml ? parseFilGoalNews(teamHtml) : []),
+    ].filter((n) => {
       const t = n.title;
       if (t.includes("المصري للألومنيوم") || t.includes("مصري المقاصة")) return false;
+      // صفحات "في الجول" بتحتوي كمان أخبار عامة، فنسيب اللي يخص النادي بس
       return t.includes("المصري") || t.includes("بورسعيد");
     });
-    // لو مفيش أخبار مطابقة، نرجّع قائمة فارغة بدل رمي خطأ يوقف الصفحة
-    return list.slice(0, 30);
+    const aggItems = (aggXml ? parseAggregatorNews(aggXml) : []).filter((n) => {
+      const t = n.title;
+      if (t.includes("المصري للألومنيوم") || t.includes("مصري المقاصة")) return false;
+      if (/الدوري المصري|المنتخب المصري|الاتحاد المصري|السوبر المصري/.test(t)) {
+        return t.includes("بورسعيد");
+      }
+      return t.includes("المصري") || t.includes("بورسعيد");
+    });
+    const merged = [...fgItems, ...aggItems];
+    return [...new Map(merged.map((n) => [n.url, n])).values()].slice(0, 40);
   });
   return {
     news: entry.value,
-    source: sourceOf("FilGoal + Yallakora", FG_NEWS_URL, entry.live, entry.at),
+    source: sourceOf("FilGoal + مصادر أخبار", FG_NEWS_URL, entry.live, entry.at),
   };
 }
 
